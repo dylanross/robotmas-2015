@@ -1,0 +1,6 @@
+tmp_callback.so
+*~
+*.pyc
+.*.sw*
+.*.s??
+output/data
