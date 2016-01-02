@@ -16,10 +16,14 @@
 // declare global variables and constants
 
 // indicator pin
-#define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
+#define LED_PIN 13 			   // (Arduino is 13, Teensy is 11, Teensy++ is 6)
 
 // wired serial communications
 int BAUD = 9600;			   // baud rate for wired serial communication (bits per sec)
+int BAUD1 = 9600;			   // baud rate for USC serial communication (bits per sec)
+const int serial0_buf_len = 32;		   // maximum number of characters to accept over Serial0
+int serial0_buf_i = 0;			   // keeps track of current position in buffer
+uint8_t serial0_buf[serial0_buf_len];	   // will store data received over Serial0
 
 // RF communications
 int RF_BAUD = 4000;		 	   // baud rate for RF communications (bits per sec)
@@ -66,42 +70,7 @@ int POS_TO_ADDR_C[]  = {0, 0, 0, 0, 1, 1, 1, 1, 	// maps servo indices (0, 1, 2,
 // 6-axis accelerometer sensing
 MPU6050 mpu;
 
-// uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
-// quaternion components in a [w, x, y, z] format (not best for parsing
-// on a remote host such as Processing or something though)
-//#define OUTPUT_READABLE_QUATERNION
-
-// uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
-// (in degrees) calculated from the quaternions coming from the FIFO.
-// Note that Euler angles suffer from gimbal lock (for more info, see
-// http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_EULER
-
-// uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
-// pitch/roll angles (in degrees) calculated from the quaternions coming
-// from the FIFO. Note this also requires gravity vector calculations.
-// Also note that yaw/pitch/roll angles suffer from gimbal lock (for
-// more info, see: http://en.wikipedia.org/wiki/Gimbal_lock)
-#define OUTPUT_READABLE_YAWPITCHROLL
-
-// uncomment "OUTPUT_READABLE_REALACCEL" if you want to see acceleration
-// components with gravity removed. This acceleration reference frame is
-// not compensated for orientation, so +X is always +X according to the
-// sensor, just without the effects of gravity. If you want acceleration
-// compensated for orientation, us OUTPUT_READABLE_WORLDACCEL instead.
-//#define OUTPUT_READABLE_REALACCEL
-
-// uncomment "OUTPUT_READABLE_WORLDACCEL" if you want to see acceleration
-// components with gravity removed and adjusted for the world frame of
-// reference (yaw is relative to initial orientation, since no magnetometer
-// is present in this case). Could be quite handy in some cases.
-//#define OUTPUT_READABLE_WORLDACCEL
-
-// uncomment "OUTPUT_TEAPOT" if you want output that matches the
-// format used for the InvenSense teapot demo
-//#define OUTPUT_TEAPOT
-
-// MPU control/status vars
+// 6-axis accelerometer sensing : MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
 uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
@@ -109,7 +78,7 @@ uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
-// orientation/motion vars
+// 6-axis accelerometer sensing : orientation/motion vars
 Quaternion q;           // [w, x, y, z]         quaternion container
 VectorInt16 aa;         // [x, y, z]            accel sensor measurements
 VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
@@ -118,14 +87,15 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-// packet structure for InvenSense teapot demo
-uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
+int16_t ax, ay, az;	// acceleration vector components
+int16_t gx, gy, gz;	// rotation vector components
 
 
 void setup() {
 	// set up wired serial line
   	Serial.begin(BAUD);		// open serial line and set baud rate
-    	while (!Serial); 		// wait for enumeration
+	Serial1.begin(BAUD1);		// open serial line and set baud rate
+    	while (!Serial || !Serial1);    // wait for enumeration
 
 	// set up indicator pin
 	pinMode(LED_PIN, OUTPUT);	// used as an indicator for debugging purposes
@@ -154,22 +124,9 @@ void setup() {
     	#endif
 
     	// initialize device
-//    	Serial.println(F("Initializing I2C devices..."));
     	mpu.initialize();
 
-    	// verify connection
-//    	Serial.println(F("Testing device connections..."));
-//    	Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : 
-//					      F("MPU6050 connection failed"));
-
-    	// wait for ready
-//    	Serial.println(F("\nSend any character to begin DMP programming and demo: "));
-//    	while (Serial.available() && Serial.read()); // empty buffer
-//    	while (!Serial.available());                 // wait for data
-//    	while (Serial.available() && Serial.read()); // empty buffer again
-
     	// load and configure the DMP
-//    	Serial.println(F("Initializing DMP..."));
     	devStatus = mpu.dmpInitialize();
 
     	// supply your own gyro offsets here, scaled for min sensitivity
@@ -181,16 +138,13 @@ void setup() {
     	// make sure it worked (returns 0 if so)
     	if (devStatus == 0) {
         	// turn on the DMP, now that it's ready
-//        	Serial.println(F("Enabling DMP..."));
         	mpu.setDMPEnabled(true);
 
         	// enable Arduino interrupt detection
-//        	Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
         	attachInterrupt(0, dmpDataReady, RISING);
         	mpuIntStatus = mpu.getIntStatus();
 
         	// set our DMP Ready flag so the main loop() function knows it's okay to use it
-//        	Serial.println(F("DMP ready! Waiting for first interrupt..."));
         	dmpReady = true;
 
         	// get expected DMP packet size for later comparison
@@ -200,9 +154,6 @@ void setup() {
         	// 1 = initial memory load failed
         	// 2 = DMP configuration updates failed
         	// (if it's going to break, usually the code will be 1)
-//        	Serial.print(F("DMP Initialization failed (code "));
-//        	Serial.print(devStatus);
-//        	Serial.println(F(")"));
     	}
 
 
@@ -212,7 +163,7 @@ void setup() {
 // interrupt detection routine for 6-axis accelerometer
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 void dmpDataReady() {
-    mpuInterrupt = true;
+    	mpuInterrupt = true;
 }
 
 
@@ -268,7 +219,7 @@ int* sense_range(int* ranges) {    	   // accepts array of length "nSensors", an
 
 
 void send(char *msg){
-	// TODO append BOARD_ID to all outgoing messages
+	// TODO automatically append BOARD_ID to all outgoing messages
 	digitalWrite(LED_PIN, 1);	   // turn indicator LED on
 	vw_send((uint8_t *)msg, strlen(msg));	// send the message
 	vw_wait_tx(); 				// wait for message to be sent
@@ -282,20 +233,28 @@ int SENDER_ID_index = 0;	// index at which sender ID starts in received RF messa
 int CMD_ID_index = 2;		// index at which command ID starts in received RF message
 int CMD_BODY_index = 4;		// index at which command body starts in received RF message
 
-void parse(uint8_t buf[]) {
+void parse(uint8_t buf[], int source_flag) {
 	int SENDER_ID = (int) buf[SENDER_ID_index];
 	char CMD_ID = (char) buf[CMD_ID_index];
+
+	char *resp = "";
 
 	if (SENDER_ID != BOARD_ID) {
 		if (CMD_ID == *"S") {
 			// servo command, format : "S,#1P1500T500"
+			// TODO send servo commands to USC over second serial
+			// TODO do not send servo commands over Serial0
+			// line
+			// TODO test the above
 			int i = CMD_BODY_index;
 			while ((char) buf[i] != *"\n") {
 				Serial.print((char)buf[i]);
+				Serial1.print((char)buf[i]);
 				i++;
 			}
 			Serial.println(" ");
-			send("1,s\n\r");
+			Serial1.println(" ");
+			resp = "1,s\n\r";
 		}
 		else if (CMD_ID == *"P") {
 			// request position data, format : "P" or "P,{0 -- H}"
@@ -307,15 +266,11 @@ void parse(uint8_t buf[]) {
 					pos_arr[i] = sense_position(i);
 				}
 
-				// convert to char array for transmission
-				// don't use hardcoded number of position
+				// convert to char array for response
+				// TODO don't use hardcoded number of position
 				// readings; use N_SERVOS global variable
 				// instead
-				char *msg = "";
-				sprintf(msg, "1,p,%i,%i,%i\n\r", pos_arr[0], pos_arr[1], pos_arr[2]);
-
-				// transmit measurements
-				send(msg);
+				sprintf(resp, "1,p,%i,%i,%i\n\r", pos_arr[0], pos_arr[1], pos_arr[2]);
 			}
 			else {
 				// specific position data has been requested
@@ -323,12 +278,8 @@ void parse(uint8_t buf[]) {
 				int servo_ID = (int) (buf[CMD_BODY_index] - '0');
 				int pos = sense_position(servo_ID);
 
-				// convert to char array for transmission
-				char *msg = "";
-				sprintf(msg, "1,p,%i,%i\n\r", servo_ID, pos);
-
-				// transmit measurement
-				send(msg);
+				// convert to char array for response
+				sprintf(resp, "1,p,%i,%i\n\r", servo_ID, pos);
 			}
 		}
 		else if (CMD_ID == *"U") {
@@ -341,13 +292,9 @@ void parse(uint8_t buf[]) {
 				int ranges[4] = {1, 1, 1, 1};
 				sense_range(ranges);
 
-				// convert to char array for transmission
-				char *msg = "";
-				sprintf(msg, "1,u,%i,%i,%i,%i\n\r", ranges[0], ranges[1], 
+				// convert to char array for response
+				sprintf(resp, "1,u,%i,%i,%i,%i\n\r", ranges[0], ranges[1], 
 								    ranges[2], ranges[3]);
-
-				// transmit measurements
-				send(msg);
 			}
 			else {
 				// specific ultrasonic sensor data has been requested
@@ -357,156 +304,114 @@ void parse(uint8_t buf[]) {
 				ranges[us_ID] = 1;
 				sense_range(ranges);
 
-				// convert to char for transmission
-				char *msg = "";
-				sprintf(msg, "1,u,%i\n\r", ranges[us_ID]);
-
-				// transmit measurements
-				send(msg);
+				// convert to char for response
+				sprintf(resp, "1,u,%i\n\r", ranges[us_ID]);
 			}
 		}
 		else if (CMD_ID == *"A") {
-			// request accelerometer data, format : "A"
-			send("1,a,KHARN\n\r");
+			// request linear acceleration vector, format : "A"
+			// TODO check that messages do not exceed max. message length
+			
+			// measure linear acceleration
+ 			mpu.getAcceleration(&ax, &ay, &az);
+
+			// convert to char array for response
+			sprintf(resp, "1,a,%i,%i,%i\n\r", ax, ay, az);
 		}
-		else if (CMD_ID == *"G") {
-			// request GPS data, format : "G"
-			send("1,g,NI\n\r");
+		else if (CMD_ID == *"R") {
+			// request rotation vector, format = "R"
+			// TODO check that messages do not exceed max. message length
+
+			// measure rotation
+    			mpu.getRotation(&gx, &gy, &gz);
+
+			// convert to char array for response
+//			sprintf(resp, "1,r,%i,%i,%i\n\r", ypr[0]*180/M_PI, ypr[1]*180/M_PI, ypr[2]*180/M_PI);
+			sprintf(resp, "1,r,%i,%i,%i\n\r", gx, gy, gz);
 		}
+//		else if (CMD_ID == *"G") {
+//			// request gravity vector, format : "G"
+//			
+//			// convert to char array for response
+//			sprintf(resp, "1,g,%i,%i,%i\n\r", gravity.x, gravity.y, gravity.z);
+//		}
 		else {
 			// received command does not match known responses!
-			send("1,NR\n\r");
+			resp = "1,NR\n\r";
+		}
+
+		if (source_flag == 0) {
+			// message was received over RF; send response over RF
+			send(resp);
+		} 
+		else if (source_flag == 1) {
+			// message was received over wired serial line; send
+			// response over wired line
+			Serial.print(resp);
 		}
 	}
 }
 
 
 void loop() {
-    // if programming failed, don't try to do anything
-    if (!dmpReady) return;
-
-    // wait for MPU interrupt or extra packet(s) available
-    while (!mpuInterrupt && fifoCount < packetSize) {
-        // other program behavior stuff here
-        // .
-        // .
-        // .
-        // if you are really paranoid you can frequently test in between other
-        // stuff to see if mpuInterrupt is true, and if so, "break;" from the
-        // while() loop to immediately process the MPU data
-        // .
-        // .
-        // .
-    }
-
-    // reset interrupt flag and get INT_STATUS byte
-    mpuInterrupt = false;
-    mpuIntStatus = mpu.getIntStatus();
-
-    // get current FIFO count
-    fifoCount = mpu.getFIFOCount();
-
-    // check for overflow (this should never happen unless our code is too inefficient)
-    if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-        // reset so we can continue cleanly
-        mpu.resetFIFO();
-//        Serial.println(F("FIFO overflow!"));
-
-    // otherwise, check for DMP data ready interrupt (this should happen frequently)
-    } else if (mpuIntStatus & 0x02) {
-        // wait for correct available data length, should be a VERY short wait
-        while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-
-        // read a packet from FIFO
-        mpu.getFIFOBytes(fifoBuffer, packetSize);
-        
-        // track FIFO count here in case there is > 1 packet available
-        // (this lets us immediately read more without waiting for an interrupt)
-        fifoCount -= packetSize;
-
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
-        mpu.dmpGetGravity(&gravity, &q);
-        mpu.dmpGetEuler(euler, &q);
-        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-
-        mpu.dmpGetAccel(&aa, fifoBuffer);
-        mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-        mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-
-
-//        #ifdef OUTPUT_READABLE_QUATERNION
-//            // display quaternion values in easy matrix form: w x y z
-//            mpu.dmpGetQuaternion(&q, fifoBuffer);
-//            Serial.print("quat\t");
-//            Serial.print(q.w);
-//            Serial.print("\t");
-//            Serial.print(q.x);
-//            Serial.print("\t");
-//            Serial.print(q.y);
-//            Serial.print("\t");
-//            Serial.println(q.z);
-//        #endif
+//    	// if programming failed, don't try to do anything
+//    	if (!dmpReady) return;
 //
-//        #ifdef OUTPUT_READABLE_EULER
-//            // display Euler angles in degrees
-//            mpu.dmpGetQuaternion(&q, fifoBuffer);
-//            mpu.dmpGetEuler(euler, &q);
-//            Serial.print("euler\t");
-//            Serial.print(euler[0] * 180/M_PI);
-//            Serial.print("\t");
-//            Serial.print(euler[1] * 180/M_PI);
-//            Serial.print("\t");
-//            Serial.println(euler[2] * 180/M_PI);
-//        #endif
+//    	// wait for MPU interrupt or extra packet(s) available
+//    	while (!mpuInterrupt && fifoCount < packetSize) { }
 //
-//        #ifdef OUTPUT_READABLE_YAWPITCHROLL
-//            // display Euler angles in degrees
-//            mpu.dmpGetQuaternion(&q, fifoBuffer);
-//            mpu.dmpGetGravity(&gravity, &q);
-//            mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-//            Serial.print("ypr\t");
-//            Serial.print(ypr[0] * 180/M_PI);
-//            Serial.print("\t");
-//            Serial.print(ypr[1] * 180/M_PI);
-//            Serial.print("\t");
-//            Serial.println(ypr[2] * 180/M_PI);
-//        #endif
+//    	// reset interrupt flag and get INT_STATUS byte
+//    	mpuInterrupt = false;
+//    	mpuIntStatus = mpu.getIntStatus();
 //
-//        #ifdef OUTPUT_READABLE_REALACCEL
-//            // display real acceleration, adjusted to remove gravity
-//            mpu.dmpGetQuaternion(&q, fifoBuffer);
-//            mpu.dmpGetAccel(&aa, fifoBuffer);
-//            mpu.dmpGetGravity(&gravity, &q);
-//            mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-//            Serial.print("areal\t");
-//            Serial.print(aaReal.x);
-//            Serial.print("\t");
-//            Serial.print(aaReal.y);
-//            Serial.print("\t");
-//            Serial.println(aaReal.z);
-//        #endif
+//    	// get current FIFO count
+//    	fifoCount = mpu.getFIFOCount();
 //
-//        #ifdef OUTPUT_READABLE_WORLDACCEL
-//            // display initial world-frame acceleration, adjusted to remove gravity
-//            // and rotated based on known orientation from quaternion
-//            mpu.dmpGetQuaternion(&q, fifoBuffer);
-//            mpu.dmpGetAccel(&aa, fifoBuffer);
-//            mpu.dmpGetGravity(&gravity, &q);
-//            mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-//            mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-//            Serial.print("aworld\t");
-//            Serial.print(aaWorld.x);
-//            Serial.print("\t");
-//            Serial.print(aaWorld.y);
-//            Serial.print("\t");
-//            Serial.println(aaWorld.z);
-//        #endif
-    }
-
+//    	// check for overflow (this should never happen unless our code is too inefficient)
+//    	if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
+//        	// reset so we can continue cleanly
+//        	mpu.resetFIFO();
+//
+//    	// otherwise, check for DMP data ready interrupt (this should happen frequently)
+//    	} else if (mpuIntStatus & 0x02) {
+//        	// wait for correct available data length, should be a VERY short wait
+//        	while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
+//
+//        	// read a packet from FIFO
+//        	mpu.getFIFOBytes(fifoBuffer, packetSize);
+//        
+//        	// track FIFO count here in case there is > 1 packet available
+//        	// (this lets us immediately read more without waiting for an interrupt)
+//        	fifoCount -= packetSize;
+//
+//        	mpu.dmpGetQuaternion(&q, fifoBuffer);
+//        	mpu.dmpGetGravity(&gravity, &q);
+//        	mpu.dmpGetEuler(euler, &q);
+//        	mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+//
+//        	mpu.dmpGetAccel(&aa, fifoBuffer);
+//        	mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+//        	mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
+//    	}
+//
+	// receive message over RF, parse, and respond
 	uint8_t buf[VW_MAX_MESSAGE_LEN];
 	uint8_t buflen = VW_MAX_MESSAGE_LEN;
 
 	if (vw_get_message(buf, &buflen)) {
-		parse(buf);
+		parse(buf, 0);
 	}
+
+	// receive message over wired Serial0, parse, and respond
+	while (Serial.available() > 0) {
+        	uint8_t received = Serial.read();	// receive a character
+		serial0_buf[serial0_buf_i] = received;	// read it into the marked position in the buffer
+		serial0_buf_i += 1;			// increment the buffer marker
+
+        	if (received == '\r')			// once a whole message is read into the buffer
+        	{
+			parse(serial0_buf, 1);		// parse the message, respond
+			serial0_buf_i = 0;		// reset the buffer marker
+        	}
+    	}
 }
