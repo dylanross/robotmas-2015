@@ -5,15 +5,15 @@
 #include <VirtualWire.h>
 
 
-int boardID;
+int BOARD_ID;
 int RF_BAUD = 4000;
 
 void setup() {
 	// set board ID for communications
-	boardID = 0;
+	BOARD_ID = 0;
 
 	// set up wired serial line
-	Serial.begin(9600);
+	Serial.begin(115200);
 
 	// set up RF serial TX
 	vw_set_rx_pin(11);		// set receive pin for RF link
@@ -27,9 +27,10 @@ void setup() {
 
 
 void send(char *msg){
+	// send a message over the RF serial line
 	// TODO append BOARD_ID to all outgoing messages
-	Serial.print("T:");
-	Serial.print(msg);
+//	Serial.print("T:");
+//	Serial.print(msg);
 	digitalWrite(13, 1);
 	vw_send((uint8_t *)msg, strlen(msg));
 	vw_wait_tx(); // Wait until the whole message is gone
@@ -38,10 +39,11 @@ void send(char *msg){
 
 
 void receive() {
+	// receive a message over the RF serial line
 	uint8_t buf[VW_MAX_MESSAGE_LEN];
 	uint8_t buflen = VW_MAX_MESSAGE_LEN;
 	
-	Serial.print("R:");
+//	Serial.print("R:");
 	if (vw_get_message(buf, &buflen)) { // non-blocking
 		// print whole lines to wired Serial line
 		int i = 0;
@@ -49,111 +51,36 @@ void receive() {
 			Serial.print((char)buf[i]);
 			i++;
 		}
+		Serial.println(" ");
 	}
 	else {
-		Serial.print("NO RESPONSE");
+//		Serial.print("NO RESPONSE");
 	}
-	Serial.println(" ");
 }
 
 
-int DELAY_LONG = 1000;
-int DELAY_SHORT = 100;
+//int DELAY_LONG = 1000;
+//int DELAY_SHORT = 200;
+int RESPONSE_DELAY = 1;
+String inData;
 void loop(){
-	// send messages over RF serial link
-	// TODO remove explicit delays and implement listen-before-talk
-//	send("0,P,2\n\r"); delay(DELAY_SHORT); receive();
+	// receive messages over wired serial link, then forward over RF serial link,
+	// collect response over RF serial link, and forward over wired serial link
+	while (Serial.available() > 0)
+	{
+        	char recieved = Serial.read();  // store character received over wired serial line
+        	inData += recieved; 		// append received character to string inData
 
-	send("0,S,#1P600T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,S,#2P600T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,S,#3P600T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
+        	if (recieved == '\r')		// a complete message has arrived
+        	{
+			char msg[inData.length()];
+			inData.toCharArray(msg, inData.length());
 
-	send("0,S,#1P1500T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,S,#2P1500T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,S,#3P1500T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
+            		send(msg);		// forward message over RF serial line
 
-	send("0,S,#1P2400T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,S,#2P2400T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,S,#3P2400T500\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
-	send("0,P\n\r"); delay(DELAY_SHORT); receive();
+            		inData = ""; 		// clear input string
+        	}
+		receive();		// receive responses from sent messages
+    	}
+	receive();			// receive responses from sent messages
 }
