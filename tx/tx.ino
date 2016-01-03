@@ -13,7 +13,7 @@ void setup() {
 	BOARD_ID = 0;
 
 	// set up wired serial line
-	Serial.begin(115200);
+	Serial.begin(9600);
 
 	// set up RF serial TX
 	vw_set_rx_pin(11);		// set receive pin for RF link

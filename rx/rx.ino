@@ -32,6 +32,8 @@ const int RF_RX_PIN = 12;	 	   // pins for receive (RF) and transmit (TX) signal
 const int RF_TX_PIN = 11;
 
 // ultrasonic ranging
+float us_c = 343.2;			   // speed of sound (meters per second)
+float us_mag = pow(10, -3);		   // desired order of magnitude for output (10**-3 => millimeters)
 int nSensors = 4;                          // placeholder for global "number of sensors" variable
 int ranges[4] = {0, 0, 0, 0};              // placeholder for input array
 
@@ -194,7 +196,7 @@ int* sense_range(int* ranges) {    	   // accepts array of length "nSensors", an
 
     else {                                 // if entry is non-zero, returns range value for that sensor
       
-      int duration = 0;                    // initialise variables
+      int dur = 0;                    // initialise variables
       int distance = 0;
       
       pinMode(trigPin, OUTPUT);            // define input and output pins
@@ -206,9 +208,13 @@ int* sense_range(int* ranges) {    	   // accepts array of length "nSensors", an
       delayMicroseconds(10);
       digitalWrite(trigPin, LOW);
       
-      duration = pulseIn(echoPins[sensorx], HIGH); //listens for response from echo pin
-      distance = 0.5 * duration / 29;      // coverts duration to a distance in cm - integer under "duration" 
-      					   // defines units - 29 gives cm
+      dur = pulseIn(echoPins[sensorx], HIGH, 1*1000*1000); //listens for response from echo pin
+      // TODO check this calculation -- seems wrong!
+//      distance = 0.5 * dur / 29;      // coverts duration to a distance in cm - integer under "duration" 
+//      					   // defines units - 29 gives cm
+		   
+      distance = us_c*dur*pow(10, -6)/us_mag; // converts duration to a distance in meters
+
       ranges[sensorx] = distance;          // enters the distance into the array
       delay(10);                           // DEBUG attempt to remove spurious returns - seems to work
     }
